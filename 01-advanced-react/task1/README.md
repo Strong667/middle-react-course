@@ -1,75 +1,66 @@
-# React + TypeScript + Vite
+# Задача 1. Render и DOM
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Цель
 
-Currently, two official plugins are available:
+Различить вычисление компонента и изменение DOM.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Что нужно сделать
 
-## React Compiler
+1. Создайте родителя со счётчиком и дочерний компонент с постоянным текстом. Добавьте кнопку изменения счётчика.
+2. Добавьте диагностический лог в тело ребёнка и MutationObserver для его DOM-узла с обязательной очисткой подписки.
+3. Сравните обновление родителя и изменение отдельного prop title ребёнка. Опишите, какие наблюдения относятся к render, а какие — к DOM.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Требования к результату
 
-## Expanding the ESLint configuration
+- Одинаковый текст ребёнка не считается изменением DOM только из-за лога.
+- После повторного монтажа остаётся одна подписка; дополнительные проверки StrictMode объяснены.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Запуск
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+cd 01-advanced-react/task1
+npm install
+npm run dev -- --host 127.0.0.1
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+## Наблюдения
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Лог `[render]` стоит в теле компонента, поэтому он показывает только то, что компонент вызвался, то есть был render. Сообщение `[DOM]` пишет MutationObserver, и оно появляется, только если DOM ребёнка правда изменился.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. Нажатие счётчика с неизменным title
 
-```
+   Родитель перерендеривается, и `Child` вместе с ним, потому что он не обёрнут в `memo`. В консоли есть `[render] Child title="React-интерфейсы"`, но сообщения `[DOM]` нет: текст тот же, и React ничего не меняет в DOM ребёнка. Меняется только число в `<p>` родителя, но он вне `<section>`, за которым следит observer. Так что лог ребёнка тут означает только render, DOM не менялся.
+
+2. Смена title
+
+   Тоже рендерятся родитель и ребёнок, но теперь приходит одно сообщение `[DOM] characterData: "Типизация данных"`. React не пересоздаёт `<h2>`, а меняет текст в уже существующем текстовом узле, постоянный текст в `<p>` не трогается.
+
+3. Размонтирование и монтаж ребёнка
+
+   При размонтировании срабатывает cleanup, в консоли `[observer] disconnected, active = 0`. `[DOM]` нет, потому что удаляется сам `<section>` из `<main>`, а observer следит только за тем, что внутри `<section>`. При повторном монтаже создаётся новый `<section>` и новый observer, title остаётся тем же, потому что индекс курса хранится в родителе. Смена title после этого снова даёт ровно одно `[DOM]`, значит наблюдатель на узле один.
+
+4. Дополнительные вызовы в StrictMode
+
+   В dev-режиме StrictMode вызывает функцию компонента два раза, поэтому каждый `[render]` в консоли повторяется дважды. В DOM изменение при этом записывается один раз, поэтому `[DOM]` на смену title одно. Ещё при монтировании StrictMode прогоняет эффект лишний раз (setup, cleanup, setup), чтобы проверить, что cleanup всё отменяет. Если бы в cleanup не было `disconnect()`, после этой проверки на одном `<section>` висело бы два наблюдателя и каждое изменение логировалось бы дважды. В production-сборке (`npm run build` и `npm run preview`) лишних вызовов нет, все логи по одному.
+
+5. Подписки по `activeObservers`
+
+   Логи за все проверки:
+
+   ```
+   [observer] connected, active = 1
+   [observer] disconnected, active = 0
+   [observer] connected, active = 1
+   [observer] disconnected, active = 0
+   [observer] connected, active = 1
+   [observer] disconnected, active = 0
+   [observer] connected, active = 1
+   ```
+
+   Первые три строки появляются при первой загрузке, лишняя пара от StrictMode. На счётчик и смену title эффект не перезапускается, потому что у него пустой массив зависимостей. Четвёртая строка это размонтирование, последние три это повторный монтаж, тоже с лишней парой от StrictMode. В конце `active = 1`, остаётся одна подписка.
+
+Самопроверка: `npm run lint` и `npm run build` проходят без ошибок.
+
+## Версии
+
+Node.js 24.16.0, npm 11.13.0, React 19.3.1, Vite 8.3.8, TypeScript 6.0.3.
